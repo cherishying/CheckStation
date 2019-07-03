@@ -37,6 +37,7 @@ CKxBlobAnalyse::~CKxBlobAnalyse()
 	ClearSortInfo();
 
 }
+
 void CKxBlobAnalyse::Clear()
 {
 	if (m_pBlobInfo)
@@ -57,43 +58,42 @@ void CKxBlobAnalyse::Clear()
 int CKxBlobAnalyse::ToBlob(const unsigned char* buf, int nWidth, int nHeight, int nPitch)
 {
 	KxCallStatus hCall;
-	kxRect<int> rc;
-	rc.setup(0, 0, nWidth - 1, nHeight - 1);
+	Rect rc(0, 0, nWidth, nHeight);
+	//rc.setup(0, 0, nWidth - 1, nHeight - 1);
 	return ToBlob(buf, nPitch, rc, hCall);
 }
 
 int CKxBlobAnalyse::ToBlob( const unsigned char* buf, int nWidth, int nHeight, int nPitch, KxCallStatus& hCall )
 {
-	kxRect<int> rc;
-	rc.setup(0, 0, nWidth-1, nHeight-1);
+	Rect rc(0, 0, nWidth, nHeight);
+	//rc.setup(0, 0, nWidth-1, nHeight-1);
 	return ToBlob(buf, nPitch, rc, hCall);
 }
 
-
-int CKxBlobAnalyse::ToBlob(const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob)
+int CKxBlobAnalyse::ToBlob(const unsigned char* buf, int nPitch, const cv::Rect& rcBlob)
 {
 	KxCallStatus hCall;
 	return ToSimpBlob(buf, nPitch, rcBlob, hCall);
 }
 
-
-int CKxBlobAnalyse::ToBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall)
+int CKxBlobAnalyse::ToBlob( const unsigned char* buf, int nPitch, const cv::Rect& rcBlob, KxCallStatus& hCall)
 {
 	return ToSimpBlob(buf, nPitch, rcBlob, hCall);
 
 }
 
-int CKxBlobAnalyse::ToBlob(const kxCImageBuf& SrcImg)
+int CKxBlobAnalyse::ToBlob(cv::InputArray SrcImg)
 {
 	KxCallStatus hCall;
-	return ToBlob(SrcImg.buf, SrcImg.nWidth, SrcImg.nHeight, SrcImg.nPitch, hCall);
+	cv::Mat matSrcImg = SrcImg.getMat();
+	return ToBlob(matSrcImg.data, matSrcImg.cols, matSrcImg.rows, matSrcImg.step, hCall);
 
 }
 
-
-int CKxBlobAnalyse::ToBlob(const kxCImageBuf& SrcImg, KxCallStatus& hCall)
+int CKxBlobAnalyse::ToBlob(cv::InputArray SrcImg, KxCallStatus& hCall)
 {
-	return ToBlob(SrcImg.buf, SrcImg.nWidth, SrcImg.nHeight, SrcImg.nPitch, hCall);
+	cv::Mat matSrcImg = SrcImg.getMat();
+	return ToBlob(matSrcImg.data, matSrcImg.cols, matSrcImg.rows, matSrcImg.step, hCall);
 
 }
 
@@ -101,7 +101,7 @@ int CKxBlobAnalyse::MergeSomeConnections(const unsigned char* buf, int nWidth, i
 {
 	IppStatus  status = ippStsNoErr;
     //use open operate to merge some connections
-	m_OpenImg.Init(nWidth, nHeight);
+	m_OpenImg = Mat(nHeight, nWidth, CV_8UC1);
 	if (m_nOpenSize > 1)
 	{
 		IppiBorderType borderType = ippBorderRepl;
@@ -117,10 +117,11 @@ int CKxBlobAnalyse::MergeSomeConnections(const unsigned char* buf, int nWidth, i
 
 		IppiMorphAdvState* pSpec = (IppiMorphAdvState*)ippsMalloc_8u(nSpecSize);
 		Ipp8u* pBuffer = ippsMalloc_8u(nBufferSize);
-		m_MaskImg.Init(maskSize.width, maskSize.height);	
-		ippsSet_8u(1, m_MaskImg.buf, maskSize.width*maskSize.height);
 
-		if (check_sts(status = ippiMorphAdvInit_8u_C1R(roiSize, m_MaskImg.buf, maskSize, pSpec, pBuffer), 
+		m_MaskImg = Mat(maskSize.height, maskSize.width, CV_8UC1);
+		ippsSet_8u(1, m_MaskImg.data, maskSize.width*maskSize.height);
+
+		if (check_sts(status = ippiMorphAdvInit_8u_C1R(roiSize, m_MaskImg.data, maskSize, pSpec, pBuffer), 
 			"ippiMorphAdvGetSize_8u_C1R", hCall))
 		{
 			ippsFree(pSpec);
@@ -135,36 +136,33 @@ int CKxBlobAnalyse::MergeSomeConnections(const unsigned char* buf, int nWidth, i
 			ippsFree(pBuffer);
 			return 0;
 		}
-
 		ippsFree(pSpec);
 		ippsFree(pBuffer);
-
 	}
 	else
 	{
 		IppiSize Roi = {nWidth, nHeight};
-
 		if (check_sts(status  = ippiCopy_8u_C1R(buf, nPitch, pDst, nWidth, Roi), "ippiCopy", hCall))
 		{
 			return 0;
 		}
-
-
 	}
-
-
 	return 1;
 }
 
-int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall)
+int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const cv::Rect& rcBlob, KxCallStatus& hCall)
 {
+	/*
+		这个函数应该是上古时代的 blob, 
+	*/
+
 	Clear(); //clear the data struct
 	
 	hCall.Clear();
 	IppStatus status;
 
-	IppiSize Roi = {rcBlob.Width(), rcBlob.Height()};
-	if (m_BufferImg.buf == NULL || Roi.width != m_Img.nWidth || Roi.height != m_Img.nHeight)
+	IppiSize Roi = {rcBlob.width, rcBlob.height};
+	if (m_BufferImg.data == NULL || Roi.width != m_Img.cols || Roi.height != m_Img.rows)
 	{
 		int  nBufferSize;
 		status = ippiLabelMarkersGetBufferSize_16u_C1R(Roi, &nBufferSize);
@@ -173,12 +171,11 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 		{
 			return 0;
 		}
-
-		m_BufferImg.Init(nBufferSize, 1);
+		m_BufferImg.create(1, nBufferSize, CV_8UC1);
 	}
 	//copy a Img
-	m_Img.Init(Roi.width, Roi.height);
-	status = ippiCopy_8u_C1R(buf, nPitch, m_Img.buf, m_Img.nPitch, Roi);
+	m_Img.create(Roi.height, Roi.width, CV_8UC1);
+	status = ippiCopy_8u_C1R(buf, nPitch, m_Img.data, m_Img.step, Roi);
 
 	if (check_sts(status, "ToSimpBlob_ippiCopy", hCall))
 	{
@@ -186,9 +183,9 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 	}
 
 	//merge some connections
-	m_PreImg.Init(Roi.width, Roi.height);
+	m_PreImg.create(Roi.height, Roi.width, CV_8UC1);
 	KxCallStatus hTempCall;
-	MergeSomeConnections(buf, Roi.width, Roi.height, nPitch, m_PreImg.buf, m_PreImg.nPitch, hTempCall);
+	MergeSomeConnections(buf, Roi.width, Roi.height, nPitch, m_PreImg.data, m_PreImg.step, hTempCall);
 
 	if (check_sts(hTempCall, "ToSimpBlob_MergeSomeConnections", hCall))
 	{
@@ -196,8 +193,10 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 	}
 
 
-	m_pTmpImg.Init(Roi.width, Roi.height);
-	status = ippiConvert_8u16u_C1R(m_PreImg.buf + rcBlob.top * m_PreImg.nPitch + rcBlob.left, m_PreImg.nPitch,  m_pTmpImg.buf, m_pTmpImg.nPitch, Roi);
+	m_pTmpImg.create(Roi.height, Roi.width, CV_16UC1);
+	int left = rcBlob.x + rcBlob.width - 1;
+	//int right = 
+	status = ippiConvert_8u16u_C1R(m_PreImg.data + rcBlob.y * m_PreImg.step + left, m_PreImg.step, (Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi);
 	
 	if (check_sts(status, "ToSimpBlob_ippiConvert", hCall))
 	{
@@ -206,8 +205,8 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 
 	//first,label the connections components
 	int nCount = 0;
-	status = ippiLabelMarkers_16u_C1IR(m_pTmpImg.buf, m_pTmpImg.nPitch, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count, 
-		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1 ), &nCount, m_BufferImg.buf);
+	status = ippiLabelMarkers_16u_C1IR((Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
+		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1 ), &nCount, m_BufferImg.data);
 
 	if (check_sts(status, "ToSimpBlob_ippiLabelMarkers", hCall))
 	{
@@ -230,12 +229,12 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 
 	if (nCount > _Max_FloodBlob_Count)
 	{
-		if (m_nGridX != rcBlob.Width()/m_nGridXStep || m_nGridY != rcBlob.Height()/m_nGridYStep)
+		if (m_nGridX != rcBlob.width/m_nGridXStep || m_nGridY != rcBlob.height/m_nGridYStep)
 		{
-			SetGridXY(rcBlob.Width()/m_nGridXStep, rcBlob.Height()/m_nGridYStep);
+			SetGridXY(rcBlob.width/m_nGridXStep, rcBlob.height/m_nGridYStep);
 		}
 		hTempCall.Clear();
-		ToGridBlob(m_PreImg.buf, m_PreImg.nPitch, rcBlob, hTempCall);	
+		ToGridBlob(m_PreImg.data, m_PreImg.step, rcBlob, hTempCall);
 		m_bUseFoodFillAlogrithm = false;
 
 		if (check_sts(hTempCall, "ToSimpBlob_ToGridBlob", hCall))
@@ -258,7 +257,7 @@ int CKxBlobAnalyse::ToSimpBlob( const unsigned char* buf, int nPitch, const kxRe
 	return 1;
 }
 
-int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, KxCallStatus& hCall)
+int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(Mat& Img16u, int nCount, KxCallStatus& hCall)
 {
 	IppStatus status;
 
@@ -273,7 +272,7 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 	}
 
 	int nBufferSize;
-	IppiSize Roi = {Img16u.nWidth, Img16u.nHeight};
+	IppiSize Roi = {Img16u.cols, Img16u.rows};
 
 
 	status = ippiFloodFillGetSize(Roi, &nBufferSize);
@@ -284,11 +283,11 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 	}
 
 
-	m_BufferImgX.Init(nBufferSize, 1);
+	m_BufferImgX.create(1, nBufferSize, CV_8UC1);
 
 
-	m_pImg16u.Init(Roi.width, Roi.height);
-	status = ippiCopy_16u_C1R(Img16u.buf, Img16u.nPitch, m_pImg16u.buf, m_pImg16u.nPitch, Roi);
+	m_pImg16u.create(Roi.height, Roi.width, CV_16UC1);
+	status = ippiCopy_16u_C1R((Ipp16u*)Img16u.data, Img16u.step, (Ipp16u*)m_pImg16u.data, m_pImg16u.step, Roi);
 
 	if (check_sts(status, "ippiCopy_16u", hCall))
 	{
@@ -319,8 +318,8 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 	while (k < nCount)
 	{
 		//first, find a best seed
-		//status =  ippsFindCAny_16u(m_pImg16u.buf + nStart, nSearchLen, ToFind, k, &nPos);
-		status = ippsFind_8u((Ipp8u*)m_pImg16u.buf, nSearchLen*sizeof(Ipp16u), (Ipp8u*)(&ToFind[k]), sizeof(Ipp16u), &nPos);
+		//status =  ippsFindCAny_16u(m_pImg16u.data + nStart, nSearchLen, ToFind, k, &nPos);
+		status = ippsFind_8u((Ipp8u*)m_pImg16u.data, nSearchLen*sizeof(Ipp16u), (Ipp8u*)(&ToFind[k]), sizeof(Ipp16u), &nPos);
 
 		if (check_sts(status, "ippsFindCAny", hCall))
 		{
@@ -330,7 +329,7 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 		seed.y = nPos / (Roi.width*sizeof(Ipp16u));
 		seed.x =  (nPos % (Roi.width*sizeof(Ipp16u)))/sizeof(Ipp16u);
 
-		//valFind = m_pImg16u.buf[seed.y * m_pImg16u.nWidth + seed.x];
+		//valFind = m_pImg16u.data[seed.y * m_pImg16u.nWidth + seed.x];
 
 		//status = ippsFindC_16u(ToFind, k, valFind, &nPos1);
 
@@ -346,7 +345,7 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 		//	return 0;
 		//}
 
-		status = ippiFloodFill_8Con_16u_C1IR(m_pImg16u.buf, m_pImg16u.nPitch, Roi, seed, n++, &pRegion, m_BufferImgX.buf);
+		status = ippiFloodFill_8Con_16u_C1IR((Ipp16u*)m_pImg16u.data, m_pImg16u.step, Roi, seed, n++, &pRegion, m_BufferImgX.data);
 
 		if (check_sts(status, "ippiFloodFill_8Con", hCall))
 		{
@@ -354,7 +353,7 @@ int CKxBlobAnalyse::UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, K
 		}
 
 		m_pBlobInfo[nBlob].m_nDots = (int)pRegion.area;
-		m_pBlobInfo[nBlob].m_rc.setup(pRegion.rect.x, pRegion.rect.y, pRegion.rect.x + pRegion.rect.width - 1, pRegion.rect.y + pRegion.rect.height - 1);
+		m_pBlobInfo[nBlob].m_rc = Rect(pRegion.rect.x, pRegion.rect.y, pRegion.rect.width, pRegion.rect.height);
 		m_pBlobInfo[nBlob].m_nLabel = (int)pRegion.value[0];
 		m_pBlobInfo[nBlob].m_PtSeed.x = seed.x;
 		m_pBlobInfo[nBlob].m_PtSeed.y = seed.y;
@@ -435,14 +434,14 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 		m_pSortBlobInfo[i].m_rc = m_pBlobInfo[pIndex[i]].m_rc;
 		m_pSortBlobInfo[i].m_nEnergy = m_pBlobInfo[pIndex[i]].m_nEnergy;
 		//compute blob's general information
-		IppiSize roiSize = {m_pSortBlobInfo[i].m_rc.Width(), m_pSortBlobInfo[i].m_rc.Height()};
+		IppiSize roiSize = {m_pSortBlobInfo[i].m_rc.width, m_pSortBlobInfo[i].m_rc.height};
         
 		m_bOpenAdditionalInfo = nOpenComputeAdanceFeatures > 0 ? true : false;
 		if (m_bOpenAdditionalInfo)
 		{
 			//compute some smallest rectangle's information
-			IppiSize roi = {m_pImg16u.nWidth, m_pImg16u.nHeight};
-			kxRect<int> rc;
+			IppiSize roi = {m_pImg16u.cols, m_pImg16u.rows};
+			Rect rc;
 			int nFacotorX, nFacotorY;
 			if (m_bUseFoodFillAlogrithm)
 			{
@@ -458,24 +457,24 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 			}
 
 			Ipp16u newval = m_pSortBlobInfo[i].m_nLabel ;
-			IppiSize Roi = {rc.Width(), rc.Height()};
-			status = ippiCopy_16u_C1R(m_pImg16u.buf + rc.top * m_pImg16u.nWidth + rc.left, m_pImg16u.nPitch,
-				m_pTmpImg.buf, m_pTmpImg.nPitch, Roi);
+			IppiSize Roi = {rc.width, rc.height};
+			status = ippiCopy_16u_C1R((Ipp16u*)m_pImg16u.data + rc.y * m_pImg16u.cols + rc.x, m_pImg16u.step,
+				(Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi);
 
 			if (check_sts(status, "SortByDots_ippiCopy_first", hCall))
 			{
 				return 0;
 			}
 
-			status = ippiThreshold_LTValGTVal_16u_C1IR(m_pTmpImg.buf, m_pTmpImg.nPitch, Roi, newval, 0, newval, 0);
+			status = ippiThreshold_LTValGTVal_16u_C1IR((Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi, newval, 0, newval, 0);
 
 			if (check_sts(status, "SortByDots_ippiThreshold_LTValGTVal", hCall))
 			{
 				return 0;
 			}
 
-			//status = ippiCompareC_16u_C1R(m_pTmpImg.buf, m_pTmpImg.nPitch, newval-1, m_PreImg.buf, m_PreImg.nPitch,Roi, ippCmpGreater);
-            status = ippiConvert_16u8u_C1R(m_pTmpImg.buf, m_pTmpImg.nPitch, m_PreImg.buf, m_PreImg.nPitch, Roi);
+			//status = ippiCompareC_16u_C1R(m_pTmpImg.data, m_pTmpImg.nPitch, newval-1, m_PreImg.data, m_PreImg.nPitch,Roi, ippCmpGreater);
+            status = ippiConvert_16u8u_C1R((Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, m_PreImg.data, m_PreImg.step, Roi);
 			if (check_sts(status, "SortByDots_ippiConvert_16u8u_C1R", hCall))
 			{
 				return 0;
@@ -484,7 +483,7 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 
 			if (m_bUseFoodFillAlogrithm)
 			{
-				status = ippiAnd_8u_C1IR(m_Img.buf + rc.top * m_Img.nPitch + rc.left, m_Img.nPitch, m_PreImg.buf, m_PreImg.nPitch, Roi);
+				status = ippiAnd_8u_C1IR(m_Img.data + rc.y * m_Img.step + rc.x, m_Img.step, m_PreImg.data, m_PreImg.step, Roi);
 				
 				if (check_sts(status, "SortByDots_ippiAnd", hCall))
 				{
@@ -492,7 +491,7 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 				}
 				
 				Ipp64f pSum;
-				status = ippiSum_8u_C1R(m_PreImg.buf, m_PreImg.nPitch, Roi, &pSum);
+				status = ippiSum_8u_C1R(m_PreImg.data, m_PreImg.step, Roi, &pSum);
 				if (check_sts(status, "SortByDots_ippiSum", hCall))
 				{
 					return 0;
@@ -518,15 +517,15 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 				factorY = dstRoi.height*1.0 / srcRoi.height;
 
 				//m_OpenImg.Init(nNormWidth, nNormHeight);
-				m_SrcImg.SetImageBuf(m_PreImg.buf, srcSize.width, srcSize.height, m_PreImg.nPitch, m_PreImg.nChannel, false);
-				m_DstImg.SetImageBuf(m_OpenImg.buf, nNormWidth, nNormHeight, m_OpenImg.nPitch, m_OpenImg.nChannel, false);
+				m_SrcImg = m_PreImg;
+				m_DstImg = m_OpenImg;
 				m_hBaseFun.KxResizeImage(m_SrcImg, m_DstImg, KxLinear, hTmpCall);
 				if (check_sts(hTmpCall, "KxResizeImage", hCall))
 				{
 					return 0;
 				}
 
-				//ippiResize_8u_C1R(m_PreImg.buf, srcSize, m_PreImg.nPitch, srcRoi, m_OpenImg.buf,
+				//ippiResize_8u_C1R(m_PreImg.data, srcSize, m_PreImg.nPitch, srcRoi, m_OpenImg.data,
 				//	m_OpenImg.nPitch, dstRoi, factorX, factorY, IPPI_INTER_LINEAR);
 				//IppiRect dstRect = {0, 0, dstRoi.width, dstRoi.height};
 				//int nBuffer;
@@ -538,7 +537,7 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 				//}
 				//
     //            Ipp8u* pBuffer = new Ipp8u[nBuffer];
-				//status = ippiResizeSqrPixel_8u_C1R(m_PreImg.buf, srcSize, m_PreImg.nPitch, srcRoi, m_OpenImg.buf,
+				//status = ippiResizeSqrPixel_8u_C1R(m_PreImg.data, srcSize, m_PreImg.nPitch, srcRoi, m_OpenImg.data,
 				//	m_OpenImg.nPitch, dstRect, factorX, factorY, 0, 0, IPPI_INTER_LINEAR, pBuffer);
 
 				//if (check_sts(status, "SortByDots_ippiResizeSqrPixel", hCall))
@@ -553,8 +552,8 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 				nNormWidth = Roi.width;
                 nNormHeight = Roi.height;
 				IppiSize srcSize = {Roi.width, Roi.height};
-				m_DstImg.SetImageBuf(m_OpenImg.buf, nNormWidth, nNormHeight, m_OpenImg.nPitch, m_OpenImg.nChannel, false);				
-				status = ippiCopy_8u_C1R(m_PreImg.buf, m_PreImg.nPitch, m_DstImg.buf, m_DstImg.nPitch, srcSize);
+				m_DstImg = m_OpenImg;				
+				status = ippiCopy_8u_C1R(m_PreImg.data, m_PreImg.step, m_DstImg.data, m_DstImg.step, srcSize);
 
 				if (check_sts(status, "SortByDots_ippiCopy_second", hCall))
 				{
@@ -567,7 +566,7 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 			}
 
 
-			m_hKxMinRect.Check(m_DstImg.buf, nNormWidth, nNormHeight, m_DstImg.nPitch);
+			m_hKxMinRect.Check(m_DstImg.data, nNormWidth, nNormHeight, m_DstImg.step);
 
 			m_pSortBlobInfo[i].m_fAngle = m_hKxMinRect.GetResult().m_fAngle;		
 			m_pSortBlobInfo[i].m_nCircumference = int(m_hKxMinRect.GetResult().m_nCircumference*nFacotorX*nFacotorY*1.0/(factorX*factorY));
@@ -583,8 +582,8 @@ int  CKxBlobAnalyse::SortByDots(int nSortCount, int nOpenComputeAdanceFeatures, 
 			m_pSortBlobInfo[i].m_fRatio = float(gMax(m_pSortBlobInfo[i].m_nMinRectWidth,m_pSortBlobInfo[i].m_nMinRectHeight)/gMin(m_pSortBlobInfo[i].m_nMinRectWidth,m_pSortBlobInfo[i].m_nMinRectHeight));
 			for (int k = 0; k <4; k++)
 			{
-				m_pSortBlobInfo[i].m_Pt[k].x = int((m_hKxMinRect.GetResult().m_Pt[k].x/factorX + rc.left)*nFacotorX*1.0);
-				m_pSortBlobInfo[i].m_Pt[k].y = int((m_hKxMinRect.GetResult().m_Pt[k].y/factorY + rc.top)*nFacotorY*1.0);
+				m_pSortBlobInfo[i].m_Pt[k].x = int((m_hKxMinRect.GetResult().m_Pt[k].x/factorX + rc.x)*nFacotorX*1.0);
+				m_pSortBlobInfo[i].m_Pt[k].y = int((m_hKxMinRect.GetResult().m_Pt[k].y/factorY + rc.y)*nFacotorY*1.0);
 			}
 		}
 	}
@@ -611,27 +610,30 @@ void CKxBlobAnalyse::SetGridXY( int nGridX, int nGridY )
 }
 
 
-void CKxBlobAnalyse::InitGrid( const kxRect<int>& rc )
+void CKxBlobAnalyse::InitGrid( const cv::Rect& rc )
 {
-	int  nX = rc.Width() / m_nGridX;
-	int  nY = rc.Height() / m_nGridY;
+	int  nX = rc.width / m_nGridX;
+	int  nY = rc.height / m_nGridY;
 	assert( nX > 0 && nY > 0 );  
-	int  nXL = rc.Width() % m_nGridX;
-	int  nYL = rc.Height() % m_nGridY;
+	int  nXL = rc.width % m_nGridX;
+	int  nYL = rc.height % m_nGridY;
 	for( int i = 0; i < m_nGridX; i++ )
 	{
-		m_pGrid[i].m_rc.top = rc.top;
+		m_pGrid[i].m_rc.y = rc.y;
 		if( i == 0 )
-			m_pGrid[i].m_rc.left = rc.left;
+			m_pGrid[i].m_rc.x = rc.x;
 		else
-			m_pGrid[i].m_rc.left = m_pGrid[i-1].m_rc.right + 1;
-		m_pGrid[i].m_rc.right = m_pGrid[i].m_rc.left + nX - 1;
+			m_pGrid[i].m_rc.x = m_pGrid[i-1].m_rc.width;
+		//m_pGrid[i].m_rc.right = m_pGrid[i].m_rc.left + nX - 1;
+		m_pGrid[i].m_rc.width = nX;
 		if( nXL )
 		{
-			m_pGrid[i].m_rc.right++;
+			m_pGrid[i].m_rc.width++;
 			nXL--;
 		}
-		m_pGrid[i].m_rc.bottom = m_pGrid[i].m_rc.top + nY - 1;
+		//m_pGrid[i].m_rc.bottom = m_pGrid[i].m_rc.top + nY - 1;
+		m_pGrid[i].m_rc.height = nY;
+
 	}
 	for( int y = 1; y < m_nGridY; y++ )
 	{
@@ -643,23 +645,35 @@ void CKxBlobAnalyse::InitGrid( const kxRect<int>& rc )
 		}
 		for( int x = 0; x < m_nGridX; x++ )
 		{
-			m_pGrid[y*m_nGridX+x].m_rc.left = m_pGrid[(y-1)*m_nGridX+x].m_rc.left;
-			m_pGrid[y*m_nGridX+x].m_rc.right = m_pGrid[(y-1)*m_nGridX+x].m_rc.right;
-			m_pGrid[y*m_nGridX+x].m_rc.top = m_pGrid[(y-1)*m_nGridX+x].m_rc.bottom + 1;
-			m_pGrid[y*m_nGridX+x].m_rc.bottom = m_pGrid[y*m_nGridX+x].m_rc.top + nY -1 + kL;
+			//m_pGrid[y*m_nGridX+x].m_rc.left = m_pGrid[(y-1)*m_nGridX+x].m_rc.left;
+			//m_pGrid[y*m_nGridX+x].m_rc.right = m_pGrid[(y-1)*m_nGridX+x].m_rc.right;
+			//m_pGrid[y*m_nGridX+x].m_rc.top = m_pGrid[(y-1)*m_nGridX+x].m_rc.bottom + 1;
+			//m_pGrid[y*m_nGridX+x].m_rc.bottom = m_pGrid[y*m_nGridX+x].m_rc.top + nY -1 + kL;
+			// --------------- new ---------------------//
+			int left = m_pGrid[(y - 1)*m_nGridX + x].m_rc.x;
+			int right = m_pGrid[(y - 1)*m_nGridX + x].m_rc.width + m_pGrid[(y - 1)*m_nGridX + x].m_rc.x;
+			int top = m_pGrid[(y - 1)*m_nGridX + x].m_rc.y + m_pGrid[(y - 1)*m_nGridX + x].m_rc.height + 1;
+			int bottom = m_pGrid[y*m_nGridX + x].m_rc.y + nY - 1 + kL;
+
+			m_pGrid[y*m_nGridX + x].m_rc.x = left;
+			m_pGrid[y*m_nGridX + x].m_rc.y = top;
+			m_pGrid[y*m_nGridX + x].m_rc.width = right - left + 1;
+			m_pGrid[y*m_nGridX + x].m_rc.height = bottom - top + 1;
+
 		}
 	}
 }
 
 
-int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall)  
+int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const cv::Rect& rcBlob, KxCallStatus& hCall)
 {
+	// buf 是一张未做blob的图, 输入的rect不清楚是用在哪的
 	IppStatus  status;
 	//KxCallStatus hCall;
 	hCall.Clear();
 
-	if (m_rcCheck.top != rcBlob.top || m_rcCheck.bottom != rcBlob.bottom 
-		|| m_rcCheck.left != rcBlob.left || m_rcCheck.right != rcBlob.right)
+	if (m_rcCheck.y != rcBlob.y || (m_rcCheck.y + m_rcCheck.height - 1) != (rcBlob.y + rcBlob.height - 1)
+		|| m_rcCheck.x != rcBlob.x || (m_rcCheck.x + m_rcCheck.width - 1) != (rcBlob.x + rcBlob.width - 1))
 	{
 		InitGrid( rcBlob );
 	}
@@ -668,9 +682,9 @@ int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxR
 	{
 		m_pGrid[i].m_nDots = 0;
 		m_pGrid[i].m_nPower = 0;
-		for( int y = m_pGrid[i].m_rc.top; y <= m_pGrid[i].m_rc.bottom; y++ )
+		for( int y = m_pGrid[i].m_rc.y; y <= (m_pGrid[i].m_rc.y + m_pGrid[i].m_rc.height - 1); y++ )
 		{
-			for( int x = m_pGrid[i].m_rc.left; x <= m_pGrid[i].m_rc.right; x++ )
+			for( int x = m_pGrid[i].m_rc.x; x <= (m_pGrid[i].m_rc.x + m_pGrid[i].m_rc.width - 1); x++ )
 			{
 				int  nOff = y * nPitch + x;
 				if( buf[nOff] )
@@ -686,21 +700,21 @@ int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxR
 	roiSize.height = m_nGridY;
 	roiSize.width = m_nGridX;
 
-	m_pImg16u.Init(m_nGridX, m_nGridY);
+	m_pImg16u.create(m_nGridY, m_nGridX, CV_16UC1);
 
-	for( int y = 0; y < m_nGridY; y++ )	
+	for( int y = 0; y < m_nGridY; y++ )
 	{
 		for( int x = 0; x < m_nGridX; x++ )
 		{
 			if(	m_pGrid[y*m_nGridX+x].m_nDots < 1 )
 			{
-				m_pImg16u.buf[y*roiSize.width + x] = 0;
+				m_pImg16u.data[y*roiSize.width + x] = 0;
 				m_pGrid[y*m_nGridX+x].m_nDots = 0;
 				m_pGrid[y*m_nGridX+x].m_nPower = 0;
 			}
 			else
 			{
-				m_pImg16u.buf[y*roiSize.width + x] = 0xFF;
+				m_pImg16u.data[y*roiSize.width + x] = 0xFF;
 			}
 
 		}
@@ -719,7 +733,7 @@ int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxR
 
 	Ipp8u* pBuffer;
 	pBuffer = new Ipp8u[nBufferSize];
-	status = ippiLabelMarkers_16u_C1IR(m_pImg16u.buf, m_pImg16u.nPitch, roiSize, _Min_Lable, _Min_Lable + _MAX_Lable_Count, 
+	status = ippiLabelMarkers_16u_C1IR((Ipp16u*)m_pImg16u.data, m_pImg16u.step, roiSize, _Min_Lable, _Min_Lable + _MAX_Lable_Count, 
 		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1 ), &m_nCount, pBuffer);
 
 	if (check_sts(status, "ippiLabelMarkers_16u", hCall))
@@ -742,41 +756,45 @@ int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxR
 	}
 
 
-	m_pBlobArea = new kxRect<int>[m_nCount];
+	m_pBlobArea = new Rect[m_nCount];
 
 	for (int i = 0; i < m_nCount; i++)
 	{
-		m_pBlobArea[i].setup(INT_MAX, INT_MAX, -INT_MAX, -INT_MAX);
+		m_pBlobArea[i] = Rect(Point(INT_MAX, INT_MAX), Point(-INT_MAX, -INT_MAX));
 	}
 
-	for( int y = 0; y < m_pImg16u.nHeight; y++ )
+	for( int y = 0; y < m_pImg16u.rows; y++ )
 	{
-		for( int x = 0; x < m_pImg16u.nWidth; x++ )
+		for( int x = 0; x < m_pImg16u.cols; x++ )
 		{
-			int  n = (int)m_pImg16u.buf[y*m_pImg16u.nWidth+x]-_Min_Lable;
+			int  n = (int)m_pImg16u.data[y*m_pImg16u.cols+x]-_Min_Lable;
             if (n >= 0)
             {
-				m_pBlobInfo[n].m_nLabel = (int)m_pImg16u.buf[y*m_pImg16u.nWidth+x];
-				m_pBlobInfo[n].m_PtSeed.setup(x, y);
-				m_pBlobInfo[n].m_nDots   += m_pGrid[y*m_nGridX+x].m_nDots;
-				m_pBlobInfo[n].m_nEnergy += m_pGrid[y*m_nGridX+x].m_nPower;
-				m_pBlobArea[n].left   = gMin(m_pBlobArea[n].left,   x);
-				m_pBlobArea[n].top    = gMin(m_pBlobArea[n].top,    y);
-				m_pBlobArea[n].right  = gMax(m_pBlobArea[n].right,  x);
-				m_pBlobArea[n].bottom = gMax(m_pBlobArea[n].bottom, y);
+				m_pBlobInfo[n].m_nLabel = (int)m_pImg16u.data[y*m_pImg16u.cols+x];
+				m_pBlobInfo[n].m_PtSeed = Point(x, y);
+				m_pBlobInfo[n].m_nDots += m_pGrid[y*m_nGridX + x].m_nDots;
+				m_pBlobInfo[n].m_nEnergy += m_pGrid[y*m_nGridX + x].m_nPower;
+				m_pBlobArea[n].x = gMin(m_pBlobArea[n].x, x);
+				m_pBlobArea[n].y = gMin(m_pBlobArea[n].y, y);
+				m_pBlobArea[n].width = gMax(m_pBlobArea[n].x + m_pBlobArea[n].width - 1, x) - m_pBlobArea[n].x + 1;
+				m_pBlobArea[n].height = gMax(m_pBlobArea[n].y + m_pBlobArea[n].height - 1, y) - m_pBlobArea[n].y + 1;
             }
-
 		}
 	}
     
 	int nIndex = 0;
-	for( int i = 0; i < m_nCount; i++ )
+	for( int i = 0; i < m_nCount; i++)
 	{
-		int nLeft = m_pGrid[m_pBlobArea[i].top*m_nGridX + m_pBlobArea[i].left ].m_rc.left;
-		int nTop = m_pGrid[m_pBlobArea[i].top*m_nGridX + m_pBlobArea[i].left ].m_rc.top;
-		int nRight = m_pGrid[m_pBlobArea[i].bottom*m_nGridX + m_pBlobArea[i].right ].m_rc.right;
-		int nBottom = m_pGrid[m_pBlobArea[i].bottom*m_nGridX + m_pBlobArea[i].right ].m_rc.bottom;
-		m_pBlobInfo[i].m_rc.setup( nLeft, nTop, nRight, nBottom );
+		int areatop = m_pBlobArea[i].y;
+		int areabottom = m_pBlobArea[i].y + m_pBlobArea[i].height - 1;
+		int arealeft = m_pBlobArea[i].x;
+		int arearight = m_pBlobArea[i].x + m_pBlobArea[i].width - 1;;
+
+		int nLeft = m_pGrid[areatop*m_nGridX + arealeft].m_rc.x;
+		int nTop = m_pGrid[areatop*m_nGridX + arealeft].m_rc.y;
+		int nWidth = m_pGrid[areabottom*m_nGridX + arearight].m_rc.width;
+		int nHeight = m_pGrid[areabottom*m_nGridX + arearight].m_rc.height;
+		m_pBlobInfo[i].m_rc = Rect( nLeft, nTop, nWidth, nHeight);
 
 		if (m_pBlobInfo[i].m_nDots > m_nMinDots)
 		{
@@ -790,23 +808,24 @@ int  CKxBlobAnalyse::ToGridBlob( const unsigned char* buf, int nPitch, const kxR
 	return 1;
 }
 
-
-int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures)
+int CKxBlobAnalyse::ToBlobParallel(cv::InputArray SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures)
 {
 	KxCallStatus hCall;
 	return ToBlobParallel(SrcImg, nSortByMode, nMaxSortDots, nMergeSize, nOpenComputeAdanceFeatures, hCall);
 }
 
-
-int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures, KxCallStatus& hCall)
+int CKxBlobAnalyse::ToBlobParallel(cv::InputArray SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures, KxCallStatus& hCall)
 {
 	Clear(); //clear the data struct
 
 	hCall.Clear();
 	IppStatus status;
 	m_nOpenSize = nMergeSize;
-	IppiSize Roi = { SrcImg.nWidth, SrcImg.nHeight };
-	if (m_BufferImg.buf == NULL || Roi.width != m_Img.nWidth || Roi.height != m_Img.nHeight)
+
+	Mat matSrcImg = SrcImg.getMat();
+
+	IppiSize Roi = { SrcImg.cols, SrcImg.rows };
+	if (m_BufferImg.data == NULL || Roi.width != m_Img.cols || Roi.height != m_Img.rows)
 	{
 		int  nBufferSize;
 		status = ippiLabelMarkersGetBufferSize_16u_C1R(Roi, &nBufferSize);
@@ -816,11 +835,11 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 			return 0;
 		}
 
-		m_BufferImg.Init(nBufferSize, 1);
+		m_BufferImg.create(1, nBufferSize, CV_8UC1);
 	}
 	//copy a Img
-	m_Img.Init(Roi.width, Roi.height);
-	status = ippiCopy_8u_C1R(SrcImg.buf, SrcImg.nPitch, m_Img.buf, m_Img.nPitch, Roi);
+	m_Img.create(Roi.height, Roi.width, CV_8UC1);
+	status = ippiCopy_8u_C1R(matSrcImg.data, matSrcImg.step, m_Img.data, m_Img.step, Roi);
 
 	if (check_sts(status, "ToBlobParallel_ippiCopy", hCall))
 	{
@@ -828,10 +847,10 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 	}
 
 	//merge some connections
-	m_PreImg.Init(Roi.width, Roi.height);
+	m_PreImg.create(Roi.height, Roi.width, CV_8UC1);
 	KxCallStatus hTempCall;
 	hTempCall.Clear();
-	MergeSomeConnections(SrcImg.buf, Roi.width, Roi.height, SrcImg.nPitch, m_PreImg.buf, m_PreImg.nPitch, hTempCall);
+	MergeSomeConnections(matSrcImg.data, Roi.width, Roi.height, matSrcImg.step, m_PreImg.data, m_PreImg.step, hTempCall);
 
 	if (check_sts(hTempCall, "ToBlobParallel_MergeSomeConnections", hCall))
 	{
@@ -839,10 +858,10 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 	}
 
 
-	m_pTmpImg.Init(Roi.width, Roi.height);
-	m_pImg16u.Init(Roi.width, Roi.height);
+	m_pTmpImg.create(Roi.height, Roi.width, CV_16UC1);
+	m_pImg16u.create(Roi.height, Roi.width, CV_16UC1);
 
-	status = ippiConvert_8u16u_C1R(m_PreImg.buf, m_PreImg.nPitch, m_pTmpImg.buf, m_pTmpImg.nPitch, Roi);
+	status = ippiConvert_8u16u_C1R(m_PreImg.data, m_PreImg.step, (Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi);
 
 	if (check_sts(status, "ToBlobParallel_ippiConvert", hCall))
 	{
@@ -851,8 +870,8 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 
 	//first,label the connections components
 	int nCount = 0;
-	status = ippiLabelMarkers_16u_C1IR(m_pTmpImg.buf, m_pTmpImg.nPitch, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
-		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.buf);
+	status = ippiLabelMarkers_16u_C1IR((Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
+		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.data);
 
 	if (check_sts(status, "ToBlobParallel_ippiLabelMarkers", hCall))
 	{
@@ -865,8 +884,6 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 	}
 
 	m_nCount = nCount;
-
-	
 
 	//sort by dots or energy or size
 	switch (nSortByMode)
@@ -900,42 +917,47 @@ int CKxBlobAnalyse::ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, i
 
 }
 
-
-void CKxBlobAnalyse::GetBlobImage(int nLabel, kxRect<int> rc, kxCImageBuf& blobimg)
+void CKxBlobAnalyse::GetBlobImage(int nLabel, cv::Rect rc, cv::OutputArray blobimg)
 {
-	if (m_pTmpImg.nWidth == 0 || m_pTmpImg.nHeight == 0)
+	if (m_pTmpImg.cols == 0 || m_pTmpImg.rows == 0)
 		return;
 
+	Mat matblobimg = blobimg.getMat();
+
 	Ipp16u newval = nLabel;
-	IppiSize Roi = { rc.Width(), rc.Height() };
-	m_ImgFilter16u.Init(Roi.width, Roi.height);
-	blobimg.Init(Roi.width, Roi.height);
-	ippiCopy_16u_C1R(m_pTmpImg.buf + rc.top * m_pTmpImg.nWidth + rc.left, m_pTmpImg.nPitch,
-		m_ImgFilter16u.buf, m_ImgFilter16u.nPitch, Roi);
-	ippiThreshold_LTValGTVal_16u_C1IR(m_ImgFilter16u.buf, m_ImgFilter16u.nPitch, Roi, newval, 0, newval, 0);
-	ippiConvert_16u8u_C1R(m_ImgFilter16u.buf, m_ImgFilter16u.nPitch, blobimg.buf, blobimg.nPitch, Roi);
+	IppiSize Roi = { rc.width, rc.height };
+	m_ImgFilter16u.create(Roi.height, Roi.width, CV_16UC1);
+	matblobimg.create(Roi.height, Roi.width, CV_8UC1);
+	ippiCopy_16u_C1R((Ipp16u*)m_pTmpImg.data + rc.y * m_pTmpImg.cols + rc.x, m_pTmpImg.step,
+		(Ipp16u*)m_ImgFilter16u.data, m_ImgFilter16u.step, Roi);
+	ippiThreshold_LTValGTVal_16u_C1IR((Ipp16u*)m_ImgFilter16u.data, m_ImgFilter16u.step, Roi, newval, 0, newval, 0);
+	ippiConvert_16u8u_C1R((Ipp16u*)m_ImgFilter16u.data, m_ImgFilter16u.step, matblobimg.data, matblobimg.step, Roi);
 
 }
 
-int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg)
+int CKxBlobAnalyse::SelectMaxRegionByDots(cv::InputArray SrcImg, cv::OutputArray DstImg)
 {
 	KxCallStatus hCall;
 	return SelectMaxRegionByDots(SrcImg, DstImg, hCall);
 }
 
-int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, KxCallStatus& hCall)
+int CKxBlobAnalyse::SelectMaxRegionByDots(cv::InputArray SrcImg, cv::OutputArray DstImg, KxCallStatus& hCall)
 {
 	Clear(); //clear the data struct
 
-	DstImg.Init(SrcImg.nWidth, SrcImg.nHeight);
-	IppiSize Roi = { SrcImg.nWidth, SrcImg.nHeight };
-	ippiCopy_8u_C1R(SrcImg.buf, SrcImg.nPitch, DstImg.buf, DstImg.nPitch, Roi);
+	Mat matSrcImg = SrcImg.getMat();
+	Mat matDstImg = DstImg.getMat();
+
+	matDstImg.create(matSrcImg.rows, matSrcImg.cols, CV_8UC1);
+	//DstImg.Init(SrcImg.nWidth, SrcImg.nHeight);
+	IppiSize Roi = { matSrcImg.cols, matSrcImg.rows };
+	ippiCopy_8u_C1R(matSrcImg.data, matSrcImg.step, matDstImg.data, matDstImg.step, Roi);
 
 	hCall.Clear();
 	IppStatus status;
 	m_nOpenSize = 1;
 	
-	if (m_BufferImg.buf == NULL || Roi.width != m_Img.nWidth || Roi.height != m_Img.nHeight)
+	if (m_BufferImg.data == NULL || Roi.width != m_Img.cols || Roi.height != m_Img.rows)
 	{
 		int  nBufferSize;
 		status = ippiLabelMarkersGetBufferSize_16u_C1R(Roi, &nBufferSize);
@@ -945,11 +967,13 @@ int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf
 			return 0;
 		}
 
-		m_BufferImg.Init(nBufferSize, 1);
+		//m_BufferImg.Init(nBufferSize, 1);
+		m_BufferImg.create(1, nBufferSize, CV_8UC1);
 	}
 	//copy a Img
-	m_Img.Init(Roi.width, Roi.height);
-	status = ippiCopy_8u_C1R(SrcImg.buf, SrcImg.nPitch, m_Img.buf, m_Img.nPitch, Roi);
+	//m_Img.Init(Roi.width, Roi.height);
+	m_Img.create(Roi.height, Roi.width, CV_8UC1);
+	status = ippiCopy_8u_C1R(matSrcImg.data, matSrcImg.step, m_Img.data, m_Img.step, Roi);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiCopy", hCall))
 	{
@@ -957,22 +981,24 @@ int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf
 	}
 
 	//merge some connections
-	m_PreImg.Init(Roi.width, Roi.height);
+	m_PreImg.create(Roi.height, Roi.width, CV_8UC1);
 	KxCallStatus hTempCall;
 	hTempCall.Clear();
 	m_nOpenSize = 1;
-	MergeSomeConnections(SrcImg.buf, Roi.width, Roi.height, SrcImg.nPitch, m_PreImg.buf, m_PreImg.nPitch, hTempCall);
+	MergeSomeConnections(matSrcImg.data, Roi.width, Roi.height, matSrcImg.step, m_PreImg.data, m_PreImg.step, hTempCall);
 
 	if (check_sts(hTempCall, "SelectMaxRegionByDots_MergeSomeConnections", hCall))
 	{
 		return 0;
 	}
 
+	//m_pTmpImg.Init(Roi.width, Roi.height);
+	//m_pImg16u.Init(Roi.width, Roi.height);
 
-	m_pTmpImg.Init(Roi.width, Roi.height);
-	m_pImg16u.Init(Roi.width, Roi.height);
+	m_pTmpImg.create(Roi.height, Roi.width, CV_8UC1);
+	m_pImg16u.create(Roi.height, Roi.width, CV_8UC1);
 
-	status = ippiConvert_8u16u_C1R(m_PreImg.buf, m_PreImg.nPitch, m_pTmpImg.buf, m_pTmpImg.nPitch, Roi);
+	status = ippiConvert_8u16u_C1R(m_PreImg.data, m_PreImg.step, (Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiConvert", hCall))
 	{
@@ -981,8 +1007,8 @@ int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf
 
 	//first,label the connections components
 	int nCount = 0;
-	status = ippiLabelMarkers_16u_C1IR(m_pTmpImg.buf, m_pTmpImg.nPitch, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
-		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.buf);
+	status = ippiLabelMarkers_16u_C1IR((Ipp16u*)m_pTmpImg.data, m_pTmpImg.step, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
+		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.data);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiLabelMarkers", hCall))
 	{
@@ -1000,25 +1026,27 @@ int CKxBlobAnalyse::SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf
 	return 1;
 }
 
-int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, std::string szType, int nMinRange, int nMaxRange)
+int CKxBlobAnalyse::SelectRegion(cv::InputArray SrcImg, cv::OutputArray DstImg, std::string szType, int nMinRange, int nMaxRange)
 {
 	KxCallStatus hCall;
 	return SelectRegion(SrcImg, DstImg, szType, nMinRange, nMaxRange, hCall);
 }
 
-int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, std::string szType, int nMinRange, int nMaxRange, KxCallStatus& hCall)
-{
+int CKxBlobAnalyse::SelectRegion(cv::InputArray SrcImg, cv::OutputArray DstImg, std::string szType, int nMinRange, int nMaxRange, KxCallStatus& hCall)
+{// 2019.07.02 怀疑缺失
+	/*
 	Clear(); //clear the data struct
+
 
 	DstImg.Init(SrcImg.nWidth, SrcImg.nHeight);
 	IppiSize Roi = { SrcImg.nWidth, SrcImg.nHeight };
-	ippiCopy_8u_C1R(SrcImg.buf, SrcImg.nPitch, DstImg.buf, DstImg.nPitch, Roi);
+	ippiCopy_8u_C1R(SrcImg.data, SrcImg.nPitch, DstImg.data, DstImg.nPitch, Roi);
 
 	hCall.Clear();
 	IppStatus status;
 	m_nOpenSize = 1;
 
-	if (m_BufferImg.buf == NULL || Roi.width != m_Img.nWidth || Roi.height != m_Img.nHeight)
+	if (m_BufferImg.data == NULL || Roi.width != m_Img.nWidth || Roi.height != m_Img.nHeight)
 	{
 		int  nBufferSize;
 		status = ippiLabelMarkersGetBufferSize_16u_C1R(Roi, &nBufferSize);
@@ -1032,7 +1060,7 @@ int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg,
 	}
 	//copy a Img
 	m_Img.Init(Roi.width, Roi.height);
-	status = ippiCopy_8u_C1R(SrcImg.buf, SrcImg.nPitch, m_Img.buf, m_Img.nPitch, Roi);
+	status = ippiCopy_8u_C1R(SrcImg.data, SrcImg.nPitch, m_Img.data, m_Img.nPitch, Roi);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiCopy", hCall))
 	{
@@ -1044,7 +1072,7 @@ int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg,
 	KxCallStatus hTempCall;
 	hTempCall.Clear();
 	m_nOpenSize = 1;
-	MergeSomeConnections(SrcImg.buf, Roi.width, Roi.height, SrcImg.nPitch, m_PreImg.buf, m_PreImg.nPitch, hTempCall);
+	MergeSomeConnections(SrcImg.data, Roi.width, Roi.height, SrcImg.nPitch, m_PreImg.data, m_PreImg.nPitch, hTempCall);
 
 	if (check_sts(hTempCall, "SelectMaxRegionByDots_MergeSomeConnections", hCall))
 	{
@@ -1055,7 +1083,7 @@ int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg,
 	m_pTmpImg.Init(Roi.width, Roi.height);
 	m_pImg16u.Init(Roi.width, Roi.height);
 
-	status = ippiConvert_8u16u_C1R(m_PreImg.buf, m_PreImg.nPitch, m_pTmpImg.buf, m_pTmpImg.nPitch, Roi);
+	status = ippiConvert_8u16u_C1R(m_PreImg.data, m_PreImg.step, m_pTmpImg.data, m_pTmpImg.nPitch, Roi);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiConvert", hCall))
 	{
@@ -1064,8 +1092,8 @@ int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg,
 
 	//first,label the connections components
 	int nCount = 0;
-	status = ippiLabelMarkers_16u_C1IR(m_pTmpImg.buf, m_pTmpImg.nPitch, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
-		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.buf);
+	status = ippiLabelMarkers_16u_C1IR(m_pTmpImg.data, m_pTmpImg.nPitch, Roi, _Min_Lable, _Min_Lable + _MAX_Lable_Count,
+		(m_nConnectType == _USE8 ? ippiNormInf : ippiNormL1), &nCount, m_BufferImg.data);
 
 	if (check_sts(status, "SelectMaxRegionByDots_ippiLabelMarkers", hCall))
 	{
@@ -1081,19 +1109,15 @@ int CKxBlobAnalyse::SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg,
 	//m_pBlobInfo = new SingleBlobInfo[nCount];
 
 
-
+	*/
 	return 1;
 }
-
-
 
 int  CKxBlobAnalyse::SortByEnergy(int nSortCount, int nOpenComputeAdanceFeatures)
 {
 	KxCallStatus hCall;
 	return SortByEnergy(m_nCount, nOpenComputeAdanceFeatures, hCall);
 }
-
-
 
 int  CKxBlobAnalyse::SortByEnergy(int nSortCount, int nOpenComputeAdanceFeatures, KxCallStatus& hCall)
 {
@@ -1223,7 +1247,6 @@ int  CKxBlobAnalyse::SortBySize(int nSortCount, int nOpenComputeAdanceFeatures, 
 
 }
 
-
 int  CKxBlobAnalyse::SortByDot(int nSortCount, int nOpenComputeAdanceFeatures, KxCallStatus& hCall)
 {
 	IppStatus  status;
@@ -1285,14 +1308,11 @@ int  CKxBlobAnalyse::SortByDot(int nSortCount, int nOpenComputeAdanceFeatures, K
 
 }
 
-
-
 int CKxBlobAnalyse::ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo)
 {
 	KxCallStatus hCall;
 	return ComputeBlobMinRectangle(hSortBlobInfo, hCall);
 }
-
 
 int CKxBlobAnalyse::ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo, KxCallStatus& hCall)
 {
@@ -1300,27 +1320,27 @@ int CKxBlobAnalyse::ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo, KxCal
 	KxCallStatus hCallInfo;
 	hCallInfo.Clear();
 	Ipp16u newval = hSortBlobInfo.m_nLabel;
-	IppiSize Roi = { hSortBlobInfo.m_rc.Width(), hSortBlobInfo.m_rc.Height() };
+	IppiSize Roi = { hSortBlobInfo.m_rc.width, hSortBlobInfo.m_rc.height };
 	
-	IppStatus status = ippiCopy_16u_C1R(m_pTmpImg.buf + hSortBlobInfo.m_rc.top * m_pTmpImg.nWidth + hSortBlobInfo.m_rc.left, m_pTmpImg.nPitch,
-		m_pImg16u.buf, m_pImg16u.nPitch,  Roi);
+	IppStatus status = ippiCopy_16u_C1R((Ipp16u*)m_pTmpImg.data + hSortBlobInfo.m_rc.y * m_pTmpImg.cols + hSortBlobInfo.m_rc.x, m_pTmpImg.step,
+		(Ipp16u*)m_pImg16u.data, m_pImg16u.step,  Roi);
 
 	if (check_sts(status, "ComputeBlobMinRectangle_ippiCopy_first", hCall))
 	{
 		return 0;
 	}
 
-	status = ippiThreshold_LTValGTVal_16u_C1IR(m_pImg16u.buf, m_pImg16u.nPitch, Roi, newval, 0, newval, 0);
+	status = ippiThreshold_LTValGTVal_16u_C1IR((Ipp16u*)m_pImg16u.data, m_pImg16u.step, Roi, newval, 0, newval, 0);
 
 	if (check_sts(status, "ComputeBlobMinRectangle_ippiThreshold_LTValGTVal", hCall))
 	{
 		return 0;
 	}
 
-	status = ippiConvert_16u8u_C1R(m_pImg16u.buf, m_pImg16u.nPitch, m_PreImg.buf, m_PreImg.nPitch, Roi);
+	status = ippiConvert_16u8u_C1R((Ipp16u*)m_pImg16u.data, m_pImg16u.step, m_PreImg.data, m_PreImg.step, Roi);
 
 
-	m_hKxMinRect.Check(m_PreImg.buf, Roi.width, Roi.height, m_PreImg.nPitch);
+	m_hKxMinRect.Check(m_PreImg.data, Roi.width, Roi.height, m_PreImg.step);
 
 
 	hSortBlobInfo.m_nMinRectHeight = m_hKxMinRect.GetResult().m_nMinRectHeight;
@@ -1329,4 +1349,33 @@ int CKxBlobAnalyse::ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo, KxCal
 	hSortBlobInfo.m_fRatio = m_hKxMinRect.GetResult().m_fRatio;
 
 	return 1;
+}
+
+
+/*
+	author:			HYH
+	date:			2019.07.03
+	description:	
+*/
+
+void CKxBlobAnalyse::BlobParallel(cv::InputArray SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize)
+{
+	if (SrcImg.kind() == cv::_InputArray::MAT)//CPU
+	{
+		cv::Mat matSrcImg = SrcImg.getMat();
+		if (matSrcImg.rows > _PARALLEL_SEGMENTATION_H)
+		{
+			//if 
+		}
+
+	}
+	else if (SrcImg.kind() == cv::_InputArray::CUDA_GPU_MAT)//GPU
+	{
+
+	}
+	else
+	{
+		// 暂不支持其它类型
+	}
+
 }

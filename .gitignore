@@ -9,6 +9,7 @@ Thumbs.db
 *.filters
 *vcproj
 *.obj
+*.opendb
 *.exe
 *.pdb
 *.user

@@ -9,11 +9,11 @@
 #include "ippi.h"
 #include "ipps.h"
 #include "ippcv.h"
-#include "kxDef.h"
-#include "gxMath.h"
+//#include "kxDef.h"
+//#include "gxcv::Math.h"
 #include "KxMinRectangle.h"
 #include "KxBaseFunction.h"
-
+#include "opencv2/opencv.hpp"
 
 class CKxBlobAnalyse
 {
@@ -35,13 +35,19 @@ public:
 		_SORT_BYENERGY     = 1,  //按能量排序
 		_SORT_BYSIZE       = 2,  //按尺寸（点数、能量联合）排序
 		_DEFAULT_MAX_COUNT = 4,  //默认最大排序个数
-
 		
+	};
+
+	enum
+	{
+		_PARALLEL_SEGMENTATION_H = 1024,	//启用并行blob的最小行数
+		_MAX_OMP_THREAD = 5,				//最多并行使用这么多MP线程
+
 	};
 
 	struct CGridD            //Grid struct
 	{
-		kxRect<int> m_rc;
+		Rect m_rc;
 		int  m_nDots;   
 		int  m_nPower;   
 	};
@@ -54,7 +60,7 @@ public:
 			m_nDots = 0;
 			m_nEnergy = 0;
 			m_nSize = 0;
-			m_rc.setup(0,0,0,0);
+			m_rc = cv::Rect(0, 0, 0, 0);
 			m_nLabel = 0;
 
 			memset(m_Pt, 0, sizeof(kxPoint<int>)*4);
@@ -70,11 +76,11 @@ public:
 		int          m_nDots;
 		int          m_nEnergy;
 		int          m_nSize;  //dot and energy 
-		kxRect<int>  m_rc;
+		Rect	     m_rc;
 		int          m_nLabel;
-		kxPoint<int> m_PtSeed; //seed point
+		Point        m_PtSeed; //seed point
 		//about some smallest rectangle's info
-		kxPoint<int>   m_Pt[4];
+		Point	     m_Pt[4];
 		float          m_fAngle;
 		int            m_fMinArea;
 		int            m_nMinRectWidth;
@@ -90,36 +96,36 @@ private:
 	int				 m_nCount;    //Blob count
 	SingleBlobInfo*  m_pBlobInfo; //All blobs' info
 	SingleBlobInfo*  m_pSortBlobInfo; //After sort by dots 
-	kxRect<int>*     m_pBlobArea;
-	kxImg16u         m_pImg16u;   //Temporary space
-	kxImg16u         m_pTmpImg;
-	kxImg16u         m_ImgCopy16u;
-	kxImg16u         m_Img16u;
+	cv::Rect*			 m_pBlobArea;
+	cv::Mat              m_pImg16u;   //Temporary space
+	cv::Mat	             m_pTmpImg;
+	cv::Mat              m_ImgCopy16u;
+	cv::Mat              m_Img16u;
 
-	kxCImageBuf      m_LabelImg;
+	cv::Mat		         m_LabelImg;
 
-	kxCImageBuf      m_BufferImg;
-	kxCImageBuf      m_BufferImgX;
-	kxCImageBuf      m_Buf;
-	kxCImageBuf      m_TmpImg;
-	kxCImageBuf      m_OpenImg;
-	kxCImageBuf      m_MaskImg;
-	kxCImageBuf      m_PreImg;
-	kxCImageBuf      m_Img;
+	cv::Mat				 m_BufferImg;
+	cv::Mat				 m_BufferImgX;
+	cv::Mat				 m_Buf;
+	cv::Mat				 m_TmpImg;
+	cv::Mat				 m_OpenImg;
+	cv::Mat			     m_MaskImg;
+	cv::Mat		         m_PreImg;
+	cv::Mat			     m_Img;
 
-	kxCImageBuf      m_SrcImg;
-	kxCImageBuf      m_DstImg;
+	cv::Mat				 m_SrcImg;
+	cv::Mat				 m_DstImg;
 	
-	kxRect<int>      m_rcCheck;
+	cv::Rect      m_rcCheck;
 	CKxMinRect       m_hKxMinRect;
 	CKxBaseFunction  m_hBaseFun;
 
-	kxImg16u      m_ImgFilter16u;
+	cv::Mat		         m_ImgFilter16u;
 
 	//Parameter about merge some blobs
 	int              m_nOpenSize;
 	int              m_nMinDots;
-    //whether open the status to compute the blob additional information
+    //whether open the status to compute the blob additional inforcv::Mation
 	bool             m_bOpenAdditionalInfo;
 
 	//Parameter about Grid Blob
@@ -141,35 +147,35 @@ protected:
 	void Clear();
 	void ClearSortInfo();
 	int  MergeSomeConnections(const unsigned char* buf, int nWidth, int nHeight, int nPitch, unsigned char* pDst, int nDstPitch, KxCallStatus& hCall);
-	int  ToSimpBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall );
-    int  ToGridBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall);
-    int  UseFloodAlgorithmComputeBlob(kxImg16u& Img16u, int nCount, KxCallStatus& hCall );
+	int  ToSimpBlob( const unsigned char* buf, int nPitch, const Rect& rcBlob, KxCallStatus& hCall );
+    int  ToGridBlob( const unsigned char* buf, int nPitch, const Rect& rcBlob, KxCallStatus& hCall);
+    int  UseFloodAlgorithmComputeBlob(cv::Mat& Img16u, int nCount, KxCallStatus& hCall );
 	void SetGridXY( int nGridX, int nGridY );
-	void InitGrid( const kxRect<int>& rc );
+	void InitGrid( const cv::Rect& rc );
 	int ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo, KxCallStatus& hCall );
 	int ComputeBlobMinRectangle(SingleBlobInfo& hSortBlobInfo);
 
 public:
-	int ToBlob( const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob, KxCallStatus& hCall);
-	int ToBlob(const unsigned char* buf, int nPitch, const kxRect<int>& rcBlob);
+	int ToBlob( const unsigned char* buf, int nPitch, const cv::Rect& rcBlob, KxCallStatus& hCall);
+	int ToBlob(const unsigned char* buf, int nPitch, const cv::Rect& rcBlob);
 
 
 	int ToBlob( const unsigned char* buf, int nWidth, int nHeight, int nPitch, KxCallStatus& hCall);
 	int ToBlob(const unsigned char* buf, int nWidth, int nHeight, int nPitch);
 
-	int ToBlob(const kxCImageBuf& SrcImg, KxCallStatus& hCall);
-	int ToBlob(const kxCImageBuf& SrcImg);
-	int ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures, KxCallStatus& hCall);
-	int ToBlobParallel(const kxCImageBuf& SrcImg, int nSortByMode = _SORT_BYDOTS, int nMaxSortDots = _DEFAULT_MAX_COUNT, int nMergeSize = 1, int nOpenComputeAdanceFeatures = 1);
+	int ToBlob(InputArray SrcImg, KxCallStatus& hCall);
+	int ToBlob(InputArray SrcImg);
+	int ToBlobParallel(InputArray SrcImg, int nSortByMode, int nMaxSortDots, int nMergeSize, int nOpenComputeAdanceFeatures, KxCallStatus& hCall);
+	int ToBlobParallel(InputArray SrcImg, int nSortByMode = _SORT_BYDOTS, int nMaxSortDots = _DEFAULT_MAX_COUNT, int nMergeSize = 1, int nOpenComputeAdanceFeatures = 1);
 
 	//挑选连通域最大的区域，其他区域都去掉
-	int SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, KxCallStatus& hCall);
-	int SelectMaxRegionByDots(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg);
+	int SelectMaxRegionByDots(InputArray SrcImg, cv::OutputArray DstImg, KxCallStatus& hCall);
+	int SelectMaxRegionByDots(InputArray SrcImg, cv::OutputArray DstImg);
 
 	//按点数、能量、宽、高挑选满足条件的连通域
 	//szType 可取值为 "Dots","Energy","Width","Height"
-	int SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, std::string szType, int nMinRange, int nMaxRange, KxCallStatus& hCall);
-	int SelectRegion(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, std::string szType, int nMinRange, int nMaxRange);
+	int SelectRegion(InputArray SrcImg, cv::OutputArray DstImg, std::string szType, int nMinRange, int nMaxRange, KxCallStatus& hCall);
+	int SelectRegion(InputArray SrcImg, cv::OutputArray DstImg, std::string szType, int nMinRange, int nMaxRange);
 
 
 	int SortByEnergy(int nSortCount, int nOpenComputeAdanceFeatures, KxCallStatus & hCall);
@@ -182,7 +188,13 @@ public:
 	int SortBySize(int nSortCount, int nOpenComputeAdanceFeatures = 0);
 
 	//返回只有对应label的连通域，在做完连通域分析后调研
-	void GetBlobImage(int nLabel, kxRect<int> rc, kxCImageBuf& blobimg);
+	void GetBlobImage(int nLabel, cv::Rect rc, cv::OutputArray blobimg);
+
+
+
+	// ------- 2019.07.03 new ------------//
+	// 并行blob，输入的SrcImg行数需为3、4、5的公倍数
+	void BlobParallel(InputArray SrcImg, int nSortByMode = _SORT_BYDOTS, int nMaxSortDots = _DEFAULT_MAX_COUNT, int nMergeSize = 1);
 
 
 	void SetMergeSize(int nMergeSize)
