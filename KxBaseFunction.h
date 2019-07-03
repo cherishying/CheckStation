@@ -22,15 +22,12 @@
 #include "mkl.h"
 #include <sstream>
 
-#ifdef OPENCV
 #include <opencv2/opencv.hpp>
 #include "opencv2/features2d/features2d.hpp" 
 #include "opencv2/highgui/highgui.hpp" 
 #include "opencv2/calib3d/calib3d.hpp" 
 #include "opencv2/imgproc/imgproc_c.h" 
 #include "opencv2/imgproc/imgproc.hpp"   
-#endif
-
 
 
 class CKxBaseFunction
@@ -71,6 +68,8 @@ private:
 	//GeneralFilter
 	kxCImageBuf   m_Image16s;
 	kxCImageBuf   m_Image16sAbs;
+	cv::Mat       m_Mat16s;
+	cv::Mat       m_Mat16sAbs;
 
 	//ZhuGuangCheck
 	kxCImageBuf   m_Img16s, m_ImgLapFilter, m_ImgDilate, m_ImgResize;
@@ -214,6 +213,8 @@ public:
 	//nMaskHeight为卷积核高
 	int KxAverageFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight,  Ipp16s* pMask, KxCallStatus& hCall);
 	int KxAverageFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask = NULL);
+	int KxAverageFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, int* pMask, KxCallStatus& hCall);
+	int KxAverageFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, cv::Mat Mask, KxCallStatus& hCall);
 
 	//图像中值滤波,边界采用保留原始图像方式
 	//SrcImg     为源图像
@@ -234,6 +235,7 @@ public:
 	//8u->16s->abs(16s)->8u
 	int KxGeneralFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask, Ipp16s scale, KxCallStatus& hCall);
 	int KxGeneralFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask = NULL, Ipp16s scale = 1);
+	int KxGeneralFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, int* pMask, int scale, KxCallStatus& hCall);
 
 	//8位图像滤波
 	//忽略负值

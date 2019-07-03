@@ -5,6 +5,7 @@
 #include "tbb/blocked_range2d.h"
 #include "tbb/scalable_allocator.h"
 #include "tbb/partitioner.h"
+#include "npp.h"
 using namespace tbb;
 
 
@@ -3439,6 +3440,145 @@ int CKxBaseFunction::KxAverageFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf
 
 }
 
+int CKxBaseFunction::KxAverageFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, cv::Mat Mask, KxCallStatus& hCall)
+{
+	if (Mask.type() == CV_32SC1)
+	{
+		return KxAverageFilterImage(SrcImg, DstImg, nMaskWidth, nMaskHeight, (int*)Mask.data, hCall);
+	}
+	return 0;
+}
+
+int CKxBaseFunction::KxAverageFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, int* pMask, KxCallStatus& hCall)
+{
+	hCall.Clear();
+	
+	if (SrcImg.kind() == cv::_InputArray::MAT)
+	{
+		IppStatus status;
+		cv::Mat Src = SrcImg.getMat();
+		cv::Mat Dst = SrcImg.getMat();
+		Dst.create(Src.size(), Src.type());
+
+		bool bKernelNotInit = false;
+		Ipp16s* pKernel = NULL;
+		pKernel = ippsMalloc_16s(nMaskWidth*nMaskHeight);
+		if (NULL == pMask)
+		{
+			ippsSet_16s(1, pKernel, nMaskWidth*nMaskHeight);
+			bKernelNotInit = true;
+		}
+		else
+		{
+			ippsConvert_32s16s(pMask, pKernel, nMaskWidth * nMaskHeight);
+		}
+
+		IppiSize kernSize = { nMaskWidth, nMaskHeight };
+		IppiSize dstRoiSize = { Src.size().width, Src.size().height};
+		Ipp16s pSum;
+		ippsSum_16s_Sfs(pKernel, nMaskWidth*nMaskHeight, &pSum, 0);
+		int nDivisor = pSum;
+		int nSpecSize = 0, nBufferSize = 0;
+		//* Initializes the Buffer */
+		status = ippiFilterBorderGetSize(kernSize, dstRoiSize, ipp8u, ipp16s, Src.channels(), &nSpecSize, &nBufferSize);
+		if (check_sts(status, "KxAverageFilterImage_ippiFilterBorderGetSize", hCall))
+		{
+			ippsFree(pKernel);
+			return 0;
+		}
+		IppiFilterBorderSpec* pSepc = (IppiFilterBorderSpec*)ippsMalloc_8u(nSpecSize);
+		Ipp8u* pBuffer = ippsMalloc_8u(nBufferSize);
+
+		// * Initializes the filter specification structure */
+		status = ippiFilterBorderInit_16s(pKernel, kernSize, nDivisor, ipp8u, Src.channels(), ippRndNear, pSepc);
+		if (check_sts(status, "KxAverageFilterImage_ippiFilterBorderInit_16s", hCall))
+		{
+			ippsFree(pKernel);
+			ippsFree(pSepc);
+			ippsFree(pBuffer);
+			return 0;
+		}
+
+		//Filters an image */
+		IppiBorderType borderType = ippBorderRepl;
+		if (Src.type() == CV_8SC1)
+		{
+			Ipp8u borderValue = 0;
+			status = ippiFilterBorder_8u_C1R(Src.data, Src.step, Dst.data, Dst.step, dstRoiSize, borderType, &borderValue, pSepc, pBuffer);
+		}
+		if (Src.type() == CV_8SC3)
+		{
+			Ipp8u borderValue[3] = { 0, 0, 0 };
+			status = ippiFilterBorder_8u_C3R(Src.data, Src.step, Dst.data, Dst.step, dstRoiSize, borderType, borderValue, pSepc, pBuffer);
+		}
+
+		if (check_sts(status, "KxAverageFilterImage_ippiFilterBorder_8u", hCall))
+		{
+			ippsFree(pKernel);
+			ippsFree(pSepc);
+			ippsFree(pBuffer);
+			return 0;
+		}
+		ippsFree(pKernel);
+		ippsFree(pSepc);
+		ippsFree(pBuffer);
+	}
+	else if (SrcImg.kind() == cv::_InputArray::CUDA_GPU_MAT)
+	{
+		cv::cuda::GpuMat Src = SrcImg.getGpuMat();
+		cv::cuda::GpuMat Dst = DstImg.getGpuMat();
+		Dst.create(Src.size(), Src.type());
+		NppStatus status;
+
+		// initial kernel
+		bool bKernelNotInit = false;
+		Npp32s* pKernel = NULL;
+		Ipp32s* pHostKernel = NULL;
+		pKernel = nppsMalloc_32s(nMaskWidth*nMaskHeight);
+		if (NULL == pMask)
+		{
+			pHostKernel = ippsMalloc_32s(nMaskWidth*nMaskHeight);
+			ippsSet_32s(1, pHostKernel, nMaskWidth*nMaskHeight);
+			nppsSet_32s(1, pKernel, nMaskWidth*nMaskHeight);
+			bKernelNotInit = true;
+		}
+		else
+		{
+			ippsCopy_32s(pMask, pHostKernel, nMaskWidth*nMaskHeight);
+			cudaMemcpy(pKernel, pMask, nMaskWidth*nMaskHeight * sizeof(Npp32s), cudaMemcpyHostToDevice);
+		}
+
+		// calculate divisor
+		int nDivisor;
+		ippsSum_32s_Sfs(pHostKernel, nMaskWidth*nMaskHeight, &nDivisor, 0);
+		NppiSize roiSize = { Src.size().width, Src.size().height };
+		NppiSize kernelSize = { nMaskWidth, nMaskHeight };
+		NppiPoint anchor = { nMaskWidth / 2, nMaskHeight / 2 };
+		NppiPoint srcOffset = { 0, 0 };
+	
+		if (Src.type() == CV_8UC1)
+		{
+			status = nppiFilterBorder_8u_C1R(Src.data, Src.step, roiSize, srcOffset,
+				Dst.data, Dst.step, roiSize, pKernel, kernelSize, anchor, nDivisor, NPP_BORDER_REPLICATE);
+		}
+		if (Src.type() == CV_8UC3)
+		{
+			status = nppiFilterBorder_8u_C3R(Src.data, Src.step, roiSize, srcOffset,
+				Dst.data, Dst.step, roiSize, pKernel, kernelSize, anchor, nDivisor, NPP_BORDER_REPLICATE);
+		}
+
+		cudaFree(pKernel);
+		ippsFree(pHostKernel);
+	}
+	else
+	{
+		return 0;
+	}
+
+	return 1;
+
+}
+
 int CKxBaseFunction::KxParallelAverageFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask)
 {
 	KxCallStatus hCall;
@@ -4803,6 +4943,112 @@ int CKxBaseFunction::KxGeneralFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf
 
 }
 
+int CKxBaseFunction::KxGeneralFilterImage(cv::InputArray SrcImg, cv::OutputArray DstImg, int nMaskWidth, int nMaskHeight, int* pMask, int scale, KxCallStatus& hCall)
+{
+	hCall.Clear();
+	if (SrcImg.kind() == cv::_InputArray::MAT)
+	{
+		IppStatus status;
+		cv::Mat Src = SrcImg.getMat();
+		cv::Mat Dst = DstImg.getMat();
+		Dst.create(Src.size(), Src.type());
+
+		Ipp16s* pKernel = NULL;
+		pKernel = ippsMalloc_16s(nMaskWidth*nMaskHeight);
+		if (NULL == pMask)
+		{
+			ippsSet_16s(1, pKernel, nMaskWidth*nMaskHeight);
+		}
+		else
+		{
+			ippsConvert_32s16s(pMask, pKernel, nMaskWidth*nMaskHeight);
+		}
+
+		IppiSize kernSize = { nMaskWidth, nMaskHeight };
+		IppiSize dstRoiSize = { Src.size().width, Src.size().height};
+		//Ipp16s pSum;
+		//ippsSum_16s_Sfs(pMask, nMaskWidth*nMaskHeight, &pSum, 0);
+		int nDivisor = scale;
+		int nSpecSize = 0, nBufferSize = 0;
+		//* Convert 8u image to 16s */
+		m_Mat16s.create(Src.size(), Src.type());
+		m_Mat16sAbs.create(Src.size(), Src.type());
+		if (CV_8UC1 == Src.type())
+		{
+			status = ippiConvert_8u16s_C1R(Src.data, Src.step, (Ipp16s*)m_Mat16s.data, m_Mat16s.step, dstRoiSize);
+		}
+		else if (CV_8UC3 == Src.type())
+		{
+			status = ippiConvert_8u16s_C3R(Src.data, Src.step, (Ipp16s*)m_Mat16s.data, m_Mat16s.step, dstRoiSize);
+		}
+		else
+		{
+			return 0;
+		}
+
+		//* Initializes the Buffer */
+		status = ippiFilterBorderGetSize(kernSize, dstRoiSize, ipp16s, ipp16s, Src.channels(), &nSpecSize, &nBufferSize);
+		if (check_sts(status, "KxGeneralFilterImage_ippiFilterBorderGetSize", hCall))
+		{
+			ippsFree(pKernel);
+			return 0;
+		}
+		IppiFilterBorderSpec* pSepc = (IppiFilterBorderSpec*)ippsMalloc_8u(nSpecSize);
+		Ipp8u* pBuffer = ippsMalloc_8u(nBufferSize);
+
+		// * Initializes the filter specification structure */
+		status = ippiFilterBorderInit_16s(pKernel, kernSize, nDivisor, ipp16s, Src.channels(), ippRndNear, pSepc);
+		if (check_sts(status, "KxGeneralFilterImage_ippiFilterBorderInit_16s", hCall))
+		{
+			ippsFree(pKernel);
+			ippsFree(pSepc);
+			ippsFree(pBuffer);
+			return 0;
+		}
+
+		//Filters an image */
+		IppiBorderType borderType = ippBorderRepl;
+		if (Src.type() == CV_8UC1)
+		{
+			Ipp16s borderValue = 0;
+			status = ippiFilterBorder_16s_C1R((Ipp16s*)m_Mat16s.data, m_Mat16s.step, (Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, dstRoiSize, borderType, &borderValue, pSepc, pBuffer);
+			if (check_sts(status, "KxGeneralFilterImage_ippiFilterBorder_16s_C1R", hCall))
+			{
+				ippsFree(pKernel);
+				ippsFree(pSepc);
+				ippsFree(pBuffer);
+				return 0;
+			}
+			ippiAbs_16s_C1IR((Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, dstRoiSize);
+			ippiConvert_16s8u_C1R((Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, Dst.data, Dst.step, dstRoiSize);
+
+		}
+		if (Src.type() == CV_8UC1)
+		{
+			Ipp16s borderValue[3] = { 0, 0, 0 };
+			status = ippiFilterBorder_16s_C3R((Ipp16s*)m_Mat16s.data, m_Mat16s.step, (Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, dstRoiSize, borderType, borderValue, pSepc, pBuffer);
+			if (check_sts(status, "KxGeneralFilterImage_ippiFilterBorder_16s_C3R", hCall))
+			{
+				ippsFree(pKernel);
+				ippsFree(pSepc);
+				ippsFree(pBuffer);
+				return 0;
+			}
+			ippiAbs_16s_C3IR((Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, dstRoiSize);
+			ippiConvert_16s8u_C3R((Ipp16s*)m_Mat16sAbs.data, m_Mat16sAbs.step, Dst.data, Dst.step, dstRoiSize);
+		}
+
+		ippsFree(pKernel);
+		ippsFree(pSepc);
+		ippsFree(pBuffer);
+	}
+	else if (SrcImg.kind() == cv::_InputArray::CUDA_GPU_MAT)
+	{
+
+	}
+	return 1;
+}
+
 int CKxBaseFunction::KxGeneralFilterImage8u(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask)
 {
 	KxCallStatus hCall;
@@ -4891,6 +5137,8 @@ int CKxBaseFunction::KxGeneralFilterImage8u(const kxCImageBuf& SrcImg, kxCImageB
 	return 1;
 
 }
+
+
 
 int CKxBaseFunction::KxParallelGeneralFilterImage(const kxCImageBuf& SrcImg, kxCImageBuf& DstImg, int nMaskWidth, int nMaskHeight, Ipp16s* pMask)
 {
